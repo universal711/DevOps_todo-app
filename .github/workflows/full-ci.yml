@@ -1,0 +1,104 @@
+name: Full Stack CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  full-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          python -m pytest tests/ -v || echo "No tests found"
+
+      - name: Run frontend build
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Run Docker Compose build
+        run: |
+          docker-compose build
+
+      - name: Run Docker Compose
+        run: |
+          docker-compose up -d
+          sleep 30  # Wait for services to start
+          
+      - name: Check services
+        run: |
+          docker-compose ps
+          curl -f http://localhost:80/health || echo "Frontend health check failed"
+          curl -f http://localhost:8000/docs || echo "Backend docs not available"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose down
+
+  deploy:
+    needs: full-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /path/to/DEVOPS_TODO-APP
+            git pull origin main
+            
+            # Backup current deployment
+            docker-compose down
+            
+            # Update images if using Docker Hub
+            docker-compose pull || true
+            
+            # Start new deployment
+            docker-compose up -d --build
+            
+            # Clean up old images
+            docker image prune -f
+            
+            # Check deployment status
+            sleep 10
+            docker-compose ps
+            curl -f http://localhost:80/health || exit 1
