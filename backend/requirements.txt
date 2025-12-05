@@ -18,3 +18,5 @@ pydantic-settings==2.1.0
 prometheus-client
 python-json-logger
 psycopg2-binary==2.9.9
+prometheus-client>=0.20.0
+psutil>=5.9.0

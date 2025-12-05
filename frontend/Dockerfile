@@ -8,10 +8,18 @@ RUN npm run build
 
 # Этап production
 FROM nginx:alpine
-COPY --from=builder /app/build /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Открываем порт 80 (исправлено)
+# Создаем директории для логов внутри контейнера
+RUN mkdir -p /var/log/frontend/nginx && \
+    touch /var/log/frontend/nginx/access.log && \
+    touch /var/log/frontend/nginx/error.log && \
+    chown -R nginx:nginx /var/log/frontend && \
+    chmod -R 777 /var/log/frontend  # Даем полные права
+
+# Копируем собранное приложение
+COPY --from=builder /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/nginx.conf
+
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

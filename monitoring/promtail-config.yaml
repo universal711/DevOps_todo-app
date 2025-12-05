@@ -1,0 +1,111 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 102400
+    timeout: 10s
+
+scrape_configs:
+  # Системные логи
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /logs/system/*log
+
+  # Логи Docker контейнеров (через Docker API)
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+    pipeline_stages:
+      - json:
+          expressions:
+            log: log
+            stream: stream
+            time: time
+      - labels:
+          stream:
+      - timestamp:
+          format: RFC3339Nano
+          source: time
+      - output:
+          source: log
+
+  # Логи backend (из файлов)
+  - job_name: backend
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: backend
+          service: todo-backend
+          __path__: /logs/backend/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            asctime: asctime
+            levelname: levelname
+            message: message
+            module: module
+            funcName: funcName
+            lineno: lineno
+            request_id: request_id
+            client_ip: client_ip
+            status_code: status_code
+      - labels:
+          levelname:
+          module:
+          status_code:
+      - timestamp:
+          format: "2006-01-02 15:04:05"
+          source: asctime
+
+  # Логи frontend (из файлов)
+  - job_name: frontend-nginx
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: frontend-nginx
+          service: frontend
+          __path__: /logs/frontend/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            time_local: time_local
+            remote_addr: remote_addr
+            request: request
+            status: status
+            request_time: request_time
+            http_user_agent: http_user_agent
+            body_bytes_sent: body_bytes_sent
+      - labels:
+          status:
+      - timestamp:
+          format: "02/Jan/2006:15:04:05 -0700"
+          source: time_local
+
+  # Логи приложения frontend
+  - job_name: frontend-app
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: frontend-app
+          service: frontend
+          __path__: /logs/frontend/app.log
