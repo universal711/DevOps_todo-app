@@ -8,96 +8,84 @@ on:
   workflow_dispatch:  # Manual trigger
 
 jobs:
-  stress-tests:
+  integration-test:
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Docker Compose
         run: |
-          # Устанавливаем Docker Compose
           sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
           sudo chmod +x /usr/local/bin/docker-compose
           docker-compose --version
 
-      - name: Install k6 (modern way)
+      - name: Build services
         run: |
-          # Новый способ установки k6
-          sudo apt-get update
-          sudo apt-get install -y ca-certificates gnupg curl
-          
-          # Добавляем ключ и репозиторий k6
-          sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL https://dl.k6.io/keys/gpg-keyring.k6.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/k6-archive-keyring.gpg
-          
-          echo "deb [signed-by=/etc/apt/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-          
-          sudo apt-get update
-          sudo apt-get install -y k6
-          k6 version
+          docker-compose build
+          echo "✅ All services built"
 
-      - name: Start services for testing
+      - name: Start services
         run: |
-          # Запускаем только backend и frontend для тестов
-          docker-compose up -d backend frontend
-          echo "Services starting, waiting..."
+          docker-compose up -d
+          echo "⏳ Waiting for services to start..."
           sleep 30
           
-          # Проверяем статус
+          echo "=== Service Status ==="
           docker-compose ps
-          
-          # Проверяем доступность сервисов
-          echo "Checking backend..."
-          curl -f http://localhost:8000/docs || echo "Backend not ready yet"
-          
-          echo "Checking frontend..."
-          curl -f http://localhost:80 || echo "Frontend not ready yet"
 
-      - name: Run simple k6 test
+      - name: Health checks
         run: |
-          echo "Running simple test script..."
+          echo "=== Health Checks ==="
           
-          # Создаём простой тестовый скрипт, если нет существующего
-          if [ ! -f "stress-tests/tests/load-tests/scripts/simple-test.js" ]; then
-            echo "Creating simple test script..."
-            mkdir -p stress-tests/tests/load-tests/scripts
-            cat > stress-tests/tests/load-tests/scripts/simple-test.js << 'EOF'
-            import http from 'k6/http';
-            import { check, sleep } from 'k6';
-
-            export const options = {
-              vus: 5,  // 5 virtual users
-              duration: '30s',  // 30 seconds
-            };
-
-            export default function () {
-              const res = http.get('http://localhost:8000/docs');
-              check(res, {
-                'status is 200': (r) => r.status === 200,
-                'response time < 500ms': (r) => r.timings.duration < 500,
-              });
-              sleep(1);
-            }
-            EOF
+          # Check backend
+          if curl -s -f http://localhost:8000/docs > /dev/null; then
+            echo "✅ Backend is healthy (docs available)"
+          else
+            echo "⚠ Backend docs not available, checking basic response..."
+            if curl -s -f http://localhost:8000 > /dev/null; then
+              echo "✅ Backend is responding"
+            else
+              echo "❌ Backend health check failed"
+              exit 1
+            fi
           fi
           
-          cd stress-tests/tests/load-tests
-          k6 run scripts/simple-test.js --summary-export=test-results.json || echo "Test completed"
+          # Check frontend
+          if curl -s -f http://localhost:80/health > /dev/null; then
+            echo "✅ Frontend health endpoint responding"
+          else
+            echo "⚠ Frontend health endpoint not available, checking main page..."
+            if curl -s -f http://localhost:80 > /dev/null; then
+              echo "✅ Frontend is responding"
+            else
+              echo "❌ Frontend health check failed"
+              exit 1
+            fi
+          fi
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
+      - name: Run simple API tests
+        run: |
+          echo "=== Simple API Tests ==="
+          
+          # Test backend endpoints
+          echo "Testing backend endpoints..."
+          
+          # Test docs endpoint
+          curl -f http://localhost:8000/docs && echo "✅ Backend docs available"
+          
+          # You can add more API tests here
+          # Example: curl -f http://localhost:8000/api/health || echo "Health endpoint not available"
+
+      - name: Show service logs
         if: always()
-        with:
-          name: k6-test-results
-          path: |
-            stress-tests/tests/load-tests/test-results.json
-          retention-days: 7
+        run: |
+          echo "=== Service Logs ==="
+          docker-compose logs --tail=50
 
       - name: Stop services
         if: always()
         run: |
           docker-compose down
-          docker system prune -f
-          echo "✓ Cleanup completed"
+          echo "✅ Cleanup completed"
