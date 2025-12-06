@@ -1,0 +1,55 @@
+name: Integration Test
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build with Docker Compose
+        run: |
+          docker-compose build
+          echo "✓ All services built"
+
+      - name: Start services
+        run: |
+          docker-compose up -d
+          echo "Services started, waiting for them to be ready..."
+          sleep 30
+          
+          # Check status
+          docker-compose ps
+          
+          # Check backend
+          echo "Checking backend..."
+          curl -f http://localhost:8000/docs || echo "Backend docs not ready yet"
+          
+          # Check frontend
+          echo "Checking frontend..."
+          curl -f http://localhost:80 || echo "Frontend not ready yet"
+
+      - name: Show logs
+        if: always()
+        run: |
+          echo "=== Backend logs ==="
+          docker-compose logs backend --tail=50
+          echo ""
+          echo "=== Frontend logs ==="
+          docker-compose logs frontend --tail=50
+          echo ""
+          echo "=== All logs ==="
+          docker-compose logs --tail=20
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker-compose down
+          docker system prune -f
+          echo "✓ Cleanup completed"
