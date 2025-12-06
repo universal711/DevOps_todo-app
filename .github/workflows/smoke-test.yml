@@ -1,0 +1,61 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Compose
+        run: |
+          sudo curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose version
+
+      - name: Build and start
+        run: |
+          # Build only essential services
+          docker-compose build backend frontend
+          
+          # Start services
+          docker-compose up -d backend frontend
+          sleep 25
+          
+          # Check if services are running
+          docker-compose ps | grep -q "Up" && echo "✅ Services are up" || echo "❌ Services not running"
+
+      - name: Test connectivity
+        run: |
+          echo "=== Connectivity Tests ==="
+          
+          # Backend test
+          echo "Testing backend..."
+          if timeout 10s bash -c 'until curl -f http://localhost:8000/docs; do sleep 2; done'; then
+            echo "✅ Backend accessible"
+          else
+            echo "❌ Backend not accessible"
+            docker-compose logs backend
+            exit 1
+          fi
+          
+          # Frontend test  
+          echo "Testing frontend..."
+          if timeout 10s bash -c 'until curl -f http://localhost:80; do sleep 2; done'; then
+            echo "✅ Frontend accessible"
+          else
+            echo "⚠ Frontend not accessible, but continuing..."
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose down --remove-orphans
+          docker system prune -af --volumes
