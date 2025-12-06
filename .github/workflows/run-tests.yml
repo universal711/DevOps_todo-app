@@ -13,7 +13,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup Docker Compose
         run: |
@@ -87,7 +87,7 @@ jobs:
           k6 run scripts/simple-test.js --summary-export=test-results.json || echo "Test completed"
 
       - name: Upload test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: k6-test-results
