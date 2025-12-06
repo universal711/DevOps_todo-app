@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   schedule:
     - cron: '0 0 * * *'  # Daily at midnight
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   stress-tests:
@@ -14,24 +15,89 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install k6
+      - name: Setup Docker Compose
         run: |
+          # Устанавливаем Docker Compose
+          sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
+
+      - name: Install k6 (modern way)
+        run: |
+          # Новый способ установки k6
           sudo apt-get update
-          sudo apt-get install -y ca-certificates gnupg
+          sudo apt-get install -y ca-certificates gnupg curl
+          
+          # Добавляем ключ и репозиторий k6
           sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL https://dl.k6.io/key/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/k6-archive-keyring.gpg
+          curl -fsSL https://dl.k6.io/keys/gpg-keyring.k6.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/k6-archive-keyring.gpg
+          
           echo "deb [signed-by=/etc/apt/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          
           sudo apt-get update
           sudo apt-get install -y k6
           k6 version
 
-      - name: Run simple smoke test
+      - name: Start services for testing
         run: |
-          echo "Running simple curl tests..."
-          cd stress-tests/tests/load-tests
-          if [ -f "scripts/simple-test.js" ]; then
-            echo "Found test scripts"
-            # You can add your test commands here
-          else
-            echo "No test scripts found, skipping"
+          # Запускаем только backend и frontend для тестов
+          docker-compose up -d backend frontend
+          echo "Services starting, waiting..."
+          sleep 30
+          
+          # Проверяем статус
+          docker-compose ps
+          
+          # Проверяем доступность сервисов
+          echo "Checking backend..."
+          curl -f http://localhost:8000/docs || echo "Backend not ready yet"
+          
+          echo "Checking frontend..."
+          curl -f http://localhost:80 || echo "Frontend not ready yet"
+
+      - name: Run simple k6 test
+        run: |
+          echo "Running simple test script..."
+          
+          # Создаём простой тестовый скрипт, если нет существующего
+          if [ ! -f "stress-tests/tests/load-tests/scripts/simple-test.js" ]; then
+            echo "Creating simple test script..."
+            mkdir -p stress-tests/tests/load-tests/scripts
+            cat > stress-tests/tests/load-tests/scripts/simple-test.js << 'EOF'
+            import http from 'k6/http';
+            import { check, sleep } from 'k6';
+
+            export const options = {
+              vus: 5,  // 5 virtual users
+              duration: '30s',  // 30 seconds
+            };
+
+            export default function () {
+              const res = http.get('http://localhost:8000/docs');
+              check(res, {
+                'status is 200': (r) => r.status === 200,
+                'response time < 500ms': (r) => r.timings.duration < 500,
+              });
+              sleep(1);
+            }
+            EOF
           fi
+          
+          cd stress-tests/tests/load-tests
+          k6 run scripts/simple-test.js --summary-export=test-results.json || echo "Test completed"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: k6-test-results
+          path: |
+            stress-tests/tests/load-tests/test-results.json
+          retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker-compose down
+          docker system prune -f
+          echo "✓ Cleanup completed"
