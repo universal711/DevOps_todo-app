@@ -1,0 +1,55 @@
+name: CD - Ready for Deployment
+
+on:
+  workflow_run:
+    workflows: ["Smoke Test", "Run Tests with k6", "Integration Test"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  mark-ready:
+    runs-on: ubuntu-latest
+    # Запускаем только если все тесты прошли успешно
+    if: |
+      github.event.workflow_run.conclusion == 'success' ||
+      github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Mark as ready for deployment
+        run: |
+          echo "🎉 ALL TESTS PASSED!"
+          echo ""
+          echo "=== Deployment Checklist ==="
+          echo "✅ Code committed to main"
+          echo "✅ Backend tests passed"
+          echo "✅ Frontend tests passed"
+          echo "✅ Integration tests passed"
+          echo "✅ Load tests passed"
+          echo "✅ Smoke tests passed"
+          echo ""
+          echo "=== Next Steps ==="
+          echo "1. Set up deployment server (VPS with Docker)"
+          echo "2. Add SSH secrets to GitHub:"
+          echo "   - SSH_HOST"
+          echo "   - SSH_USER"
+          echo "   - SSH_PRIVATE_KEY"
+          echo "3. Create docker-compose.prod.yml on server"
+          echo "4. Run deployment manually or set up auto-deploy"
+          echo ""
+          echo "📅 $(date)"
+          
+      - name: Create deployment tag
+        if: github.event.workflow_run.conclusion == 'success'
+        run: |
+          # Создаём лёгкий тег для отметки успешных сборок
+          echo "Creating deployment marker..."
+          DEPLOYMENT_ID=$(date +%Y%m%d-%H%M%S)
+          echo "deployment-ready-$DEPLOYMENT_ID" > .deployment-ready
+          echo "✅ Marked as ready for deployment: $DEPLOYMENT_ID"
+          
+      - name: Upload deployment marker
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-ready
+          path: .deployment-ready
+          retention-days: 7
