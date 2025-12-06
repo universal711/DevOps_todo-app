@@ -1,0 +1,26 @@
+name: Test CI - Basic
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-structure:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: List project structure
+        run: |
+          echo "=== Project Structure ==="
+          find . -maxdepth 3 -type f -name "*.yml" -o -name "*.yaml" -o -name "Dockerfile" -o -name "requirements.txt" -o -name "package.json" | sort
+          echo ""
+          echo "=== Backend files ==="
+          ls -la backend/
+          echo ""
+          echo "=== Frontend files ==="
+          ls -la frontend/

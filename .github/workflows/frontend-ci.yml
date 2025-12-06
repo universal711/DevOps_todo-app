@@ -1,0 +1,52 @@
+name: Frontend CI
+
+on:
+  push:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+          echo "✓ Dependencies installed"
+
+      - name: Build React app
+        run: |
+          cd frontend
+          npm run build
+          echo "✓ Build completed"
+
+      - name: Check build output
+        run: |
+          cd frontend
+          if [ -d "build" ]; then
+            echo "✓ Build directory exists"
+            ls -la build/
+          else
+            echo "✗ Build directory not found"
+            exit 1
+          fi
+
+      - name: Build Docker image
+        run: |
+          cd frontend
+          docker build -t todo-frontend-ci .
+          echo "✓ Docker image built"

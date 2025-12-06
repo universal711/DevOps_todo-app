@@ -1,0 +1,62 @@
+name: Backend CI
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          echo "Dependencies installed successfully"
+
+      - name: Verify Python imports
+        run: |
+          cd backend
+          python -c "
+          try:
+              import fastapi
+              import sqlalchemy
+              import uvicorn
+              from prometheus_client import generate_latest
+              print('✓ All imports successful')
+              print(f'FastAPI: {fastapi.__version__}')
+              print(f'SQLAlchemy: {sqlalchemy.__version__}')
+          except Exception as e:
+              print(f'✗ Import error: {e}')
+              exit(1)
+          "
+
+      - name: Build Docker image
+        run: |
+          cd backend
+          docker build -t todo-backend-ci .
+          echo "✓ Docker image built successfully"
+
+      - name: Run container test
+        run: |
+          docker run -d --name backend-test -p 8000:8000 todo-backend-ci
+          sleep 10
+          docker ps
+          docker logs backend-test
+          docker stop backend-test
+          docker rm backend-test
